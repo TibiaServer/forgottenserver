@@ -124,6 +124,9 @@ void Game::setGameState(GameState_t newState)
 
 			quests.loadFromXml();
 			mounts.loadFromXml();
+			auras.loadFromXml();
+			wings.loadFromXml();
+			shaders.loadFromXml();
 
 			loadMotdNum();
 			loadPlayersRecord();
@@ -732,7 +735,7 @@ void Game::playerMoveCreature(Player* player, Creature* movingCreature, const Po
 
 	if (!Position::areInRange<1, 1, 0>(movingCreatureOrigPos, player->getPosition())) {
 		//need to walk to the creature first before moving it
-		std::vector<Direction> listDir;
+		std::list<Direction> listDir;
 		if (player->getPathTo(movingCreatureOrigPos, listDir, 0, 1, true, true)) {
 			g_dispatcher.addTask(createTask(std::bind(&Game::playerAutoWalk,
 			                                this, player->getID(), std::move(listDir))));
@@ -969,7 +972,7 @@ void Game::playerMoveItem(Player* player, const Position& fromPos,
 
 	if (!Position::areInRange<1, 1>(playerPos, mapFromPos)) {
 		//need to walk to the item first before using it
-		std::vector<Direction> listDir;
+		std::list<Direction> listDir;
 		if (player->getPathTo(item->getPosition(), listDir, 0, 1, true, true)) {
 			g_dispatcher.addTask(createTask(std::bind(&Game::playerAutoWalk,
 			                                this, player->getID(), std::move(listDir))));
@@ -1028,7 +1031,7 @@ void Game::playerMoveItem(Player* player, const Position& fromPos,
 				internalGetPosition(moveItem, itemPos, itemStackPos);
 			}
 
-			std::vector<Direction> listDir;
+			std::list<Direction> listDir;
 			if (player->getPathTo(walkPos, listDir, 0, 0, true, true)) {
 				g_dispatcher.addTask(createTask(std::bind(&Game::playerAutoWalk,
 				                                this, player->getID(), std::move(listDir))));
@@ -1850,7 +1853,7 @@ void Game::playerMove(uint32_t playerId, Direction direction)
 	player->resetIdleTime();
 	player->setNextWalkActionTask(nullptr);
 
-	player->startAutoWalk(direction);
+	player->startAutoWalk(std::list<Direction> { direction });
 }
 
 bool Game::playerBroadcastMessage(Player* player, const std::string& text) const
@@ -2030,7 +2033,19 @@ void Game::playerReceivePingBack(uint32_t playerId)
 	player->sendPingBack();
 }
 
-void Game::playerAutoWalk(uint32_t playerId, const std::vector<Direction>& listDir)
+void Game::playerReceiveNewPing(uint32_t playerId, uint16_t ping, uint16_t fps)
+{
+	Player* player = getPlayerByID(playerId);
+	if (!player) {
+		return;
+	}
+
+	player->receivePing();
+	player->setLocalPing(ping);
+	player->setFPS(fps);
+}
+
+void Game::playerAutoWalk(uint32_t playerId, const std::list<Direction>& listDir)
 {
 	Player* player = getPlayerByID(playerId);
 	if (!player) {
@@ -2039,6 +2054,79 @@ void Game::playerAutoWalk(uint32_t playerId, const std::vector<Direction>& listD
 
 	player->resetIdleTime();
 	player->setNextWalkTask(nullptr);
+	player->startAutoWalk(listDir);
+}
+
+void Game::playerNewWalk(uint32_t playerId, Position pos, uint8_t flags, std::list<Direction> listDir)
+{
+	Player* player = getPlayerByID(playerId);
+	if (!player) {
+		return;
+	}
+
+	player->resetIdleTime();
+	player->setNextWalkTask(nullptr);
+	player->setNextWalkActionTask(nullptr);
+
+	//bool withPreWalk = flags & 0x01;
+	bool autoWalk = flags & 0x04;
+
+	if (pos.x != 0 && pos.y != 0 && pos != player->getPosition()) {
+		auto& dirs = player->getListWalkDir();
+		Position nextpos = player->getPosition();
+
+		int limit = 3;
+		for (auto& dir : dirs) {
+			nextpos = getNextPosition(dir, nextpos);
+			if (--limit == 0) break;
+		}
+
+		if (!autoWalk) {
+			// manual walk desync, check if can be fixed           
+			if (limit == 0 || nextpos != pos) {
+				player->sendNewCancelWalk();
+				return;
+			}
+
+			for (auto& dir : listDir) {
+				dirs.push_back(dir);
+			}
+			return;
+		} else {
+			// auto walk desync, check if can be fixed            
+			if (limit > 0 && nextpos == pos) {
+				for (auto& dir : listDir) {
+					dirs.push_back(dir);
+				}
+				return;
+			}
+
+			// can't be fixed, so maybe find another way
+			// WARNING: This loop may use extra cpu but makes autowalk (map click) much better
+			for (int x = 0; x < 3; ++x) {
+				if (listDir.empty()) {
+					player->sendNewCancelWalk();
+					return;
+				}
+
+				for (int i = 0; i < 2; ++i) {
+					if (listDir.empty())
+						break;
+					pos = getNextPosition(listDir.front(), pos);
+					listDir.pop_front();
+				}
+
+				std::list<Direction> newPath;
+				if (player->getPathTo(pos, newPath, 0, 0, false, true)) {
+					newPath.reverse();
+					for (auto& it : newPath)
+						listDir.push_front(it);
+					break;
+				}
+			}
+		}
+	}
+
 	player->startAutoWalk(listDir);
 }
 
@@ -2105,7 +2193,7 @@ void Game::playerUseItemEx(uint32_t playerId, const Position& fromPos, uint8_t f
 				internalGetPosition(moveItem, itemPos, itemStackPos);
 			}
 
-			std::vector<Direction> listDir;
+			std::list<Direction> listDir;
 			if (player->getPathTo(walkToPos, listDir, 0, 1, true, true)) {
 				g_dispatcher.addTask(createTask(std::bind(&Game::playerAutoWalk, this, player->getID(), std::move(listDir))));
 
@@ -2164,7 +2252,7 @@ void Game::playerUseItem(uint32_t playerId, const Position& pos, uint8_t stackPo
 	ReturnValue ret = g_actions->canUse(player, pos);
 	if (ret != RETURNVALUE_NOERROR) {
 		if (ret == RETURNVALUE_TOOFARAWAY) {
-			std::vector<Direction> listDir;
+			std::list<Direction> listDir;
 			if (player->getPathTo(pos, listDir, 0, 1, true, true)) {
 				g_dispatcher.addTask(createTask(std::bind(&Game::playerAutoWalk,
 				                                this, player->getID(), std::move(listDir))));
@@ -2259,7 +2347,7 @@ void Game::playerUseWithCreature(uint32_t playerId, const Position& fromPos, uin
 				internalGetPosition(moveItem, itemPos, itemStackPos);
 			}
 
-			std::vector<Direction> listDir;
+			std::list<Direction> listDir;
 			if (player->getPathTo(walkToPos, listDir, 0, 1, true, true)) {
 				g_dispatcher.addTask(createTask(std::bind(&Game::playerAutoWalk,
 				                                this, player->getID(), std::move(listDir))));
@@ -2374,7 +2462,7 @@ void Game::playerRotateItem(uint32_t playerId, const Position& pos, uint8_t stac
 	}
 
 	if (pos.x != 0xFFFF && !Position::areInRange<1, 1, 0>(pos, player->getPosition())) {
-		std::vector<Direction> listDir;
+		std::list<Direction> listDir;
 		if (player->getPathTo(pos, listDir, 0, 1, true, true)) {
 			g_dispatcher.addTask(createTask(std::bind(&Game::playerAutoWalk,
 			                                this, player->getID(), std::move(listDir))));
@@ -2468,7 +2556,7 @@ void Game::playerBrowseField(uint32_t playerId, const Position& pos)
 	}
 
 	if (!Position::areInRange<1, 1>(playerPos, pos)) {
-		std::vector<Direction> listDir;
+		std::list<Direction> listDir;
 		if (player->getPathTo(pos, listDir, 0, 1, true, true)) {
 			g_dispatcher.addTask(createTask(std::bind(&Game::playerAutoWalk,
 			                                this, player->getID(), std::move(listDir))));
@@ -2571,7 +2659,7 @@ void Game::playerWrapItem(uint32_t playerId, const Position& position, uint8_t s
 	}
 
 	if (position.x != 0xFFFF && !Position::areInRange<1, 1, 0>(position, player->getPosition())) {
-		std::vector<Direction> listDir;
+		std::list<Direction> listDir;
 		if (player->getPathTo(position, listDir, 0, 1, true, true)) {
 			g_dispatcher.addTask(createTask(std::bind(&Game::playerAutoWalk,
 				this, player->getID(), std::move(listDir))));
@@ -2642,7 +2730,7 @@ void Game::playerRequestTrade(uint32_t playerId, const Position& pos, uint8_t st
 	}
 
 	if (!Position::areInRange<1, 1>(tradeItemPosition, playerPosition)) {
-		std::vector<Direction> listDir;
+		std::list<Direction> listDir;
 		if (player->getPathTo(pos, listDir, 0, 1, true, true)) {
 			g_dispatcher.addTask(createTask(std::bind(&Game::playerAutoWalk,
 			                                this, player->getID(), std::move(listDir))));
@@ -3315,14 +3403,15 @@ void Game::playerRequestOutfit(uint32_t playerId)
 	player->sendOutfitWindow();
 }
 
-void Game::playerToggleMount(uint32_t playerId, bool mount)
+void Game::playerToggleOutfitExtension(uint32_t playerId, int mount, int wings, int aura, int shader)
 {
 	Player* player = getPlayerByID(playerId);
 	if (!player) {
 		return;
 	}
 
-	player->toggleMount(mount);
+	if(mount != -1)
+		player->toggleMount(mount == 1);
 }
 
 void Game::playerChangeOutfit(uint32_t playerId, Outfit_t outfit)
@@ -3339,6 +3428,9 @@ void Game::playerChangeOutfit(uint32_t playerId, Outfit_t outfit)
 	const Outfit* playerOutfit = Outfits::getInstance().getOutfitByLookType(player->getSex(), outfit.lookType);
 	if (!playerOutfit) {
 		outfit.lookMount = 0;
+		outfit.lookWings = 0;
+		outfit.lookAura = 0;
+		outfit.lookShader = 0;
 	}
 
 	if (outfit.lookMount != 0) {
@@ -3364,6 +3456,39 @@ void Game::playerChangeOutfit(uint32_t playerId, Outfit_t outfit)
 		}
 	} else if (player->isMounted()) {
 		player->dismount();
+	}
+
+	if (outfit.lookWings != 0) {
+		Wing* wing = wings.getWingByID(outfit.lookWings);
+		if (!wing) {
+			return;
+		}
+
+		if (!player->hasWing(wing)) {
+			return;
+		}
+	}
+
+	if (outfit.lookAura != 0) {
+		Aura* aura = auras.getAuraByID(outfit.lookAura);
+		if (!aura) {
+			return;
+		}
+
+		if (!player->hasAura(aura)) {
+			return;
+		}
+	}
+
+	if (outfit.lookShader) {
+		Shader* shader = shaders.getShaderByID(outfit.lookShader);
+		if (!shader) {
+			return;
+		}
+
+		if (!player->hasShader(shader)) {
+			return;
+		}
 	}
 
 	if (player->canWear(outfit.lookType, outfit.lookAddons)) {
@@ -5669,6 +5794,7 @@ bool Game::reload(ReloadTypes_t reloadType)
 {
 	switch (reloadType) {
 		case RELOAD_TYPE_ACTIONS: return g_actions->reload();
+		case RELOAD_TYPE_AURAS: return auras.reload();
 		case RELOAD_TYPE_CHAT: return g_chat->load();
 		case RELOAD_TYPE_CONFIG: return g_config.reload();
 		case RELOAD_TYPE_CREATURESCRIPTS: {
@@ -5689,7 +5815,7 @@ bool Game::reload(ReloadTypes_t reloadType)
 
 		case RELOAD_TYPE_QUESTS: return quests.reload();
 		case RELOAD_TYPE_RAIDS: return raids.reload() && raids.startup();
-
+		case RELOAD_TYPE_SHADERS: return shaders.reload();
 		case RELOAD_TYPE_SPELLS: {
 			if (!g_spells->reload()) {
 				std::cout << "[Error - Game::reload] Failed to reload spells." << std::endl;
@@ -5709,6 +5835,8 @@ bool Game::reload(ReloadTypes_t reloadType)
 			return results;
 		}
 
+		case RELOAD_TYPE_WINGS: return wings.reload();
+
 		case RELOAD_TYPE_SCRIPTS: {
 			// commented out stuff is TODO, once we approach further in revscriptsys
 			g_actions->clear(true);
@@ -5727,6 +5855,9 @@ bool Game::reload(ReloadTypes_t reloadType)
 			Item::items.reload();
 			quests.reload();
 			mounts.reload();
+			auras.reload();
+			wings.reload();
+			shaders.reload();
 			g_config.reload();
 			g_events->load();
 			g_chat->load();
@@ -5756,7 +5887,10 @@ bool Game::reload(ReloadTypes_t reloadType)
 			g_weapons->clear(true);
 			g_weapons->loadDefaults();
 			quests.reload();
+			auras.reload();
 			mounts.reload();
+			wings.reload();
+			shaders.reload();
 			g_globalEvents->reload();
 			g_events->load();
 			g_chat->load();
@@ -5772,4 +5906,15 @@ bool Game::reload(ReloadTypes_t reloadType)
 		}
 	}
 	return true;
+}
+
+void Game::startProgressbar(Creature* creature, uint32_t duration, bool ltr)
+{
+    SpectatorVec spectators;
+    map.getSpectators(spectators, creature->getPosition(), false, true);
+    for (Creature* spectator : spectators) {
+        if (Player* tmpPlayer = spectator->getPlayer()) {
+            tmpPlayer->sendProgressbar(creature->getID(), duration, ltr);
+        }
+    }
 }

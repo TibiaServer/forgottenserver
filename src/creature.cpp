@@ -194,14 +194,23 @@ void Creature::onIdleStatus()
 void Creature::onWalk()
 {
 	if (getWalkDelay() <= 0) {
+		Player* player = getPlayer();
 		Direction dir;
 		uint32_t flags = FLAG_IGNOREFIELDDAMAGE;
 		if (getNextStep(dir, flags)) {
 			ReturnValue ret = g_game.internalMoveCreature(this, dir, flags);
+			if (player && ret != RETURNVALUE_NOERROR) { // it's player and walk path is invalid
+				if (tryToFixAutoWalk(dir)) { // found new path
+                    if (getNextStep(dir, flags)) {
+                        ret = g_game.internalMoveCreature(this, dir, flags);
+                    }
+                }
+			}
 			if (ret != RETURNVALUE_NOERROR) {
-				if (Player* player = getPlayer()) {
+				if (player) {
 					player->sendCancelMessage(ret);
 					player->sendCancelWalk();
+					player->sendNewCancelWalk();
 				}
 
 				forceUpdateFollowPath = true;
@@ -262,7 +271,7 @@ void Creature::startAutoWalk()
 		return;
 	}
 
-	addEventWalk(listWalkDir.size() == 1);
+	addEventWalk();
 }
 
 void Creature::startAutoWalk(Direction direction)
@@ -275,10 +284,10 @@ void Creature::startAutoWalk(Direction direction)
 
 	listWalkDir.clear();
 	listWalkDir.push_back(direction);
-	addEventWalk(true);
+	addEventWalk();
 }
 
-void Creature::startAutoWalk(const std::vector<Direction>& listDir)
+void Creature::startAutoWalk(const std::list<Direction>& listDir)
 {
 	Player* player = getPlayer();
 	if (player && player->isMovementBlocked()) {
@@ -287,10 +296,10 @@ void Creature::startAutoWalk(const std::vector<Direction>& listDir)
 	}
 
 	listWalkDir = listDir;
-	addEventWalk(listWalkDir.size() == 1);
+	addEventWalk();
 }
 
-void Creature::addEventWalk(bool firstStep)
+void Creature::addEventWalk()
 {
 	cancelNextWalk = false;
 
@@ -302,7 +311,7 @@ void Creature::addEventWalk(bool firstStep)
 		return;
 	}
 
-	int64_t ticks = getEventStepTicks(firstStep);
+	int64_t ticks = getEventStepTicks();
 	if (ticks <= 0) {
 		return;
 	}
@@ -491,10 +500,10 @@ void Creature::onCreatureMove(Creature* creature, const Tile* newTile, const Pos
 			if (oldPos.z != newPos.z) {
 				//floor change extra cost
 				lastStepCost = 2;
-			} else if (Position::getDistanceX(newPos, oldPos) >= 1 && Position::getDistanceY(newPos, oldPos) >= 1) {
+			} //else if (Position::getDistanceX(newPos, oldPos) >= 1 && Position::getDistanceY(newPos, oldPos) >= 1) {
 				//diagonal extra cost
-				lastStepCost = 3;
-			}
+				//lastStepCost = 1;
+			//}
 		} else {
 			stopEventWalk();
 		}
@@ -967,11 +976,11 @@ void Creature::goToFollowCreature()
 
 bool Creature::setFollowCreature(Creature* creature)
 {
-	if (creature) {
-		if (followCreature == creature) {
-			return true;
-		}
+	if (followCreature == creature) {
+		return true;
+	}
 
+	if (creature) {
 		const Position& creaturePos = creature->getPosition();
 		if (creaturePos.z != getPosition().z || !canSee(creaturePos)) {
 			followCreature = nullptr;
@@ -1389,12 +1398,12 @@ int64_t Creature::getStepDuration(Direction dir) const
 {
 	int64_t stepDuration = getStepDuration();
 	if ((dir & DIRECTION_DIAGONAL_MASK) != 0) {
-		stepDuration *= 3;
+		stepDuration *= 1;
 	}
 	return stepDuration;
 }
 
-int64_t Creature::getStepDuration() const
+int64_t Creature::getStepDuration(bool forAnimation) const
 {
 	if (isRemoved()) {
 		return 0;
@@ -1424,26 +1433,23 @@ int64_t Creature::getStepDuration() const
 	}
 
 	double duration = std::floor(1000 * groundSpeed / calculatedStepSpeed);
-	int64_t stepDuration = std::ceil(duration / 50) * 50;
+	int64_t stepDuration = duration;
 
-	const Monster* monster = getMonster();
-	if (monster && monster->isTargetNearby() && !monster->isFleeing() && !monster->getMaster()) {
-		stepDuration *= 2;
+	if (!forAnimation) {
+		const Monster* monster = getMonster();
+		if (monster && monster->isTargetNearby() && !monster->isFleeing() && !monster->getMaster()) {
+			stepDuration *= 2;
+		}
 	}
 
 	return stepDuration;
 }
 
-int64_t Creature::getEventStepTicks(bool onlyDelay) const
+int64_t Creature::getEventStepTicks() const
 {
 	int64_t ret = getWalkDelay();
 	if (ret <= 0) {
-		int64_t stepDuration = getStepDuration();
-		if (onlyDelay && stepDuration > 0) {
-			ret = 1;
-		} else {
-			ret = stepDuration * lastStepCost;
-		}
+		ret = 1;
 	}
 	return ret;
 }
@@ -1628,12 +1634,12 @@ bool Creature::isInvisible() const
 	}) != conditions.end();
 }
 
-bool Creature::getPathTo(const Position& targetPos, std::vector<Direction>& dirList, const FindPathParams& fpp) const
+bool Creature::getPathTo(const Position& targetPos, std::list<Direction>& dirList, const FindPathParams& fpp) const
 {
 	return g_game.map.getPathMatching(*this, dirList, FrozenPathingConditionCall(targetPos), fpp);
 }
 
-bool Creature::getPathTo(const Position& targetPos, std::vector<Direction>& dirList, int32_t minTargetDist, int32_t maxTargetDist, bool fullPathSearch /*= true*/, bool clearSight /*= true*/, int32_t maxSearchDist /*= 0*/) const
+bool Creature::getPathTo(const Position& targetPos, std::list<Direction>& dirList, int32_t minTargetDist, int32_t maxTargetDist, bool fullPathSearch /*= true*/, bool clearSight /*= true*/, int32_t maxSearchDist /*= 0*/) const
 {
 	FindPathParams fpp;
 	fpp.fullPathSearch = fullPathSearch;
@@ -1642,4 +1648,32 @@ bool Creature::getPathTo(const Position& targetPos, std::vector<Direction>& dirL
 	fpp.minTargetDist = minTargetDist;
 	fpp.maxTargetDist = maxTargetDist;
 	return getPathTo(targetPos, dirList, fpp);
+}
+
+// WARNING: This function may use extra cpu but makes autowalk (map click) much better
+bool Creature::tryToFixAutoWalk(Direction dir)
+{
+	Position pos = getNextPosition(dir, getPosition());
+	for (int x = 0; x < 3; ++x) {
+		if (listWalkDir.empty()) {
+			break;
+		}
+
+		for (int i = 0; i < 2; ++i) {
+			if (listWalkDir.empty())
+				break;
+			pos = getNextPosition(listWalkDir.front(), pos);
+			listWalkDir.pop_front();
+		}
+
+		std::list<Direction> newPath;
+		if (getPathTo(pos, newPath, 0, 0, false, true)) {
+			newPath.reverse();
+			for (auto& it : newPath)
+				listWalkDir.push_front(it);
+			return true;
+		}
+	}
+
+	return false;
 }

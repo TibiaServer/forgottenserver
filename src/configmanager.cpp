@@ -19,9 +19,13 @@
 
 #include "otpch.h"
 
-#include <algorithm>
-#if __has_include("luajit/lua.hpp")
-#include <luajit/lua.hpp>
+#if defined(_MSC_VER)
+extern "C"
+{
+#include <luajit/lua.h>
+#include <luajit/lualib.h>
+#include <luajit/lauxlib.h>
+}
 #else
 #include <lua.hpp>
 #endif
@@ -246,6 +250,7 @@ bool ConfigManager::load()
 	boolean[ONLY_INVITED_CAN_MOVE_HOUSE_ITEMS] = getGlobalBoolean(L, "onlyInvitedCanMoveHouseItems", true);
 	boolean[REMOVE_ON_DESPAWN] = getGlobalBoolean(L, "removeOnDespawn", true);
 	boolean[PLAYER_CONSOLE_LOGS] = getGlobalBoolean(L, "showPlayerLogInConsole", true);
+	boolean[PACKET_COMPRESSION] = getGlobalBoolean(L, "packetCompression", true);
 
 	string[DEFAULT_PRIORITY] = getGlobalString(L, "defaultPriority", "high");
 	string[SERVER_NAME] = getGlobalString(L, "serverName", "");

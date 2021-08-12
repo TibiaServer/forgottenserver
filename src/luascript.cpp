@@ -772,6 +772,8 @@ Outfit_t LuaScriptInterface::getOutfit(lua_State* L, int32_t arg)
 {
 	Outfit_t outfit;
 	outfit.lookMount = getField<uint16_t>(L, arg, "lookMount");
+	outfit.lookWings = getField<uint16_t>(L, arg, "lookWings");
+	outfit.lookAura = getField<uint16_t>(L, arg, "lookAura");
 	outfit.lookAddons = getField<uint8_t>(L, arg, "lookAddons");
 
 	outfit.lookFeet = getField<uint8_t>(L, arg, "lookFeet");
@@ -781,6 +783,8 @@ Outfit_t LuaScriptInterface::getOutfit(lua_State* L, int32_t arg)
 
 	outfit.lookTypeEx = getField<uint16_t>(L, arg, "lookTypeEx");
 	outfit.lookType = getField<uint16_t>(L, arg, "lookType");
+
+	outfit.lookShader = getField<uint16_t>(L, arg, "lookShader");
 
 	lua_pop(L, 8);
 	return outfit;
@@ -958,6 +962,9 @@ void LuaScriptInterface::pushOutfit(lua_State* L, const Outfit_t& outfit)
 	setField(L, "lookFeet", outfit.lookFeet);
 	setField(L, "lookAddons", outfit.lookAddons);
 	setField(L, "lookMount", outfit.lookMount);
+	setField(L, "lookWings", outfit.lookWings);
+	setField(L, "lookAura", outfit.lookAura);
+	setField(L, "lookShader", outfit.lookShader);
 }
 
 void LuaScriptInterface::pushOutfit(lua_State* L, const Outfit* outfit)
@@ -1878,6 +1885,7 @@ void LuaScriptInterface::registerFunctions()
 
 	registerEnum(RELOAD_TYPE_ALL)
 	registerEnum(RELOAD_TYPE_ACTIONS)
+	registerEnum(RELOAD_TYPE_AURAS)
 	registerEnum(RELOAD_TYPE_CHAT)
 	registerEnum(RELOAD_TYPE_CONFIG)
 	registerEnum(RELOAD_TYPE_CREATURESCRIPTS)
@@ -1892,9 +1900,11 @@ void LuaScriptInterface::registerFunctions()
 	registerEnum(RELOAD_TYPE_QUESTS)
 	registerEnum(RELOAD_TYPE_RAIDS)
 	registerEnum(RELOAD_TYPE_SCRIPTS)
+	registerEnum(RELOAD_TYPE_SHADERS)
 	registerEnum(RELOAD_TYPE_SPELLS)
 	registerEnum(RELOAD_TYPE_TALKACTIONS)
 	registerEnum(RELOAD_TYPE_WEAPONS)
+	registerEnum(RELOAD_TYPE_WINGS)
 
 	registerEnum(ZONE_PROTECTION)
 	registerEnum(ZONE_NOPVP)
@@ -2334,6 +2344,8 @@ void LuaScriptInterface::registerFunctions()
 	registerMethod("Creature", "move", LuaScriptInterface::luaCreatureMove);
 
 	registerMethod("Creature", "getZone", LuaScriptInterface::luaCreatureGetZone);
+
+	registerMethod("Creature", "sendProgressbar", LuaScriptInterface::luaCreatureSetProgressbar);
 
 	// Player
 	registerClass("Player", "Creature", LuaScriptInterface::luaPlayerCreate);
@@ -8003,7 +8015,7 @@ int LuaScriptInterface::luaCreatureGetPathTo(lua_State* L)
 	fpp.clearSight = getBoolean(L, 6, fpp.clearSight);
 	fpp.maxSearchDist = getNumber<int32_t>(L, 7, fpp.maxSearchDist);
 
-	std::vector<Direction> dirList;
+	std::list<Direction> dirList;
 	if (creature->getPathTo(position, dirList, fpp)) {
 		lua_newtable(L);
 
@@ -8056,6 +8068,23 @@ int LuaScriptInterface::luaCreatureGetZone(lua_State* L)
 		lua_pushnil(L);
 	}
 	return 1;
+}
+
+int LuaScriptInterface::luaCreatureSetProgressbar(lua_State* L)
+{
+    // creature:sendProgressbar(duration, leftToRight)
+    Creature* creature = getUserdata<Creature>(L, 1);
+    uint32_t duration = getNumber<uint32_t>(L, 2);
+    bool ltr = getBoolean(L, 3);
+    if (creature) {
+        g_game.startProgressbar(creature, duration, ltr);
+        pushBoolean(L, true);
+    }
+    else {
+        lua_pushnil(L);
+    }
+
+    return 1;
 }
 
 // Player
@@ -9897,13 +9926,16 @@ int LuaScriptInterface::luaPlayerGetClient(lua_State* L)
 	// player:getClient()
 	Player* player = getUserdata<Player>(L, 1);
 	if (player) {
-		lua_createtable(L, 0, 2);
+		lua_createtable(L, 0, 5);
 		setField(L, "version", player->getProtocolVersion());
 		setField(L, "os", player->getOperatingSystem());
+		setField(L, "otcv8", player->getOTCv8Version());
+		setField(L, "ping", player->getLocalPing());
+		setField(L, "fps", player->getFPS());
 	} else {
 		lua_pushnil(L);
 	}
-	return 1;
+	return 1;	
 }
 
 int LuaScriptInterface::luaPlayerGetHouse(lua_State* L)
@@ -12700,11 +12732,14 @@ int LuaScriptInterface::luaConditionSetFormula(lua_State* L)
 int LuaScriptInterface::luaConditionSetOutfit(lua_State* L)
 {
 	// condition:setOutfit(outfit)
-	// condition:setOutfit(lookTypeEx, lookType, lookHead, lookBody, lookLegs, lookFeet[, lookAddons[, lookMount]])
+	// condition:setOutfit(lookTypeEx, lookType, lookHead, lookBody, lookLegs, lookFeet[, lookAddons[, lookMount, lookWings, lookAura, lookShader]])
 	Outfit_t outfit;
 	if (isTable(L, 2)) {
 		outfit = getOutfit(L, 2);
 	} else {
+		outfit.lookShader = getNumber<uint16_t>(L, 12, outfit.lookShader);
+		outfit.lookAura = getNumber<uint16_t>(L, 11, outfit.lookAura);
+		outfit.lookWings = getNumber<uint16_t>(L, 10, outfit.lookWings);
 		outfit.lookMount = getNumber<uint16_t>(L, 9, outfit.lookMount);
 		outfit.lookAddons = getNumber<uint8_t>(L, 8, outfit.lookAddons);
 		outfit.lookFeet = getNumber<uint8_t>(L, 7);

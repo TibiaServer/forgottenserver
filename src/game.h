@@ -32,6 +32,7 @@
 #include "npc.h"
 #include "wildcardtree.h"
 #include "quests.h"
+#include "shaders.h"
 
 class ServiceManager;
 class Creature;
@@ -350,7 +351,9 @@ class Game
 		void playerCloseNpcChannel(uint32_t playerId);
 		void playerReceivePing(uint32_t playerId);
 		void playerReceivePingBack(uint32_t playerId);
-		void playerAutoWalk(uint32_t playerId, const std::vector<Direction>& listDir);
+		void playerReceiveNewPing(uint32_t playerId, uint16_t ping, uint16_t fps);
+		void playerAutoWalk(uint32_t playerId, const std::list<Direction>& listDir);
+		void playerNewWalk(uint32_t playerId, Position pos, uint8_t flags, std::list<Direction> listDir);
 		void playerStopAutoWalk(uint32_t playerId);
 		void playerUseItemEx(uint32_t playerId, const Position& fromPos, uint8_t fromStackPos,
 		                     uint16_t fromSpriteId, const Position& toPos, uint8_t toStackPos, uint16_t toSpriteId);
@@ -398,7 +401,7 @@ class Game
 		void playerPassPartyLeadership(uint32_t playerId, uint32_t newLeaderId);
 		void playerLeaveParty(uint32_t playerId);
 		void playerEnableSharedPartyExperience(uint32_t playerId, bool sharedExpActive);
-		void playerToggleMount(uint32_t playerId, bool mount);
+		void playerToggleOutfitExtension(uint32_t playerId, int mount, int wings, int aura, int shader);
 		void playerLeaveMarket(uint32_t playerId);
 		void playerBrowseMarket(uint32_t playerId, uint16_t spriteId);
 		void playerBrowseMarketOwnOffers(uint32_t playerId);
@@ -505,11 +508,16 @@ class Game
 
 		bool reload(ReloadTypes_t reloadType);
 
+		void startProgressbar(Creature* creature, uint32_t duration, bool ltr = true);
+
+		Auras auras;
 		Groups groups;
-		Map map;
+		Map map;		
 		Mounts mounts;
 		Raids raids;
 		Quests quests;
+		Wings wings;
+		Shaders shaders;
 
 		std::forward_list<Item*> toDecayItems;
 

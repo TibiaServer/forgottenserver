@@ -24,6 +24,7 @@
 #include "chat.h"
 #include "creature.h"
 #include "tasks.h"
+#include "walkmatrix.h"
 
 class NetworkMessage;
 class Player;
@@ -271,6 +272,8 @@ class ProtocolGame final : public Protocol
 		//messages
 		void sendModalWindow(const ModalWindow& modalWindow);
 
+		void sendProgressbar(uint32_t id, uint32_t duration, bool ltr = true);
+
 		//Help functions
 
 		// translate a tile to client-readable format
@@ -304,6 +307,23 @@ class ProtocolGame final : public Protocol
 		//otclient
 		void parseExtendedOpcode(NetworkMessage& msg);
 
+		//OTCv8
+		void sendFeatures();
+
+		void sendFloorDescription(const Position& pos, int floor);
+		void parseChangeAwareRange(NetworkMessage& msg);
+		void updateAwareRange(int width, int height);
+		void sendAwareRange();
+
+		void parseNewWalking(NetworkMessage& msg);
+		void checkPredictiveWalking(const Position& pos);
+		void sendPredictiveCancel(const Position& pos, int value);
+		void sendWalkId();
+		void sendNewCancelWalk();
+
+		void parseNewPing(NetworkMessage& msg);
+		void sendNewPing(uint32_t pingId);
+
 		friend class Player;
 
 		// Helpers so we don't need to bind every time
@@ -328,6 +348,22 @@ class ProtocolGame final : public Protocol
 
 		bool debugAssertSent = false;
 		bool acceptPackets = false;
+
+		uint16_t otclientV8 = 0;
+		struct AwareRange {
+			int width = 17;
+			int height = 13;
+
+			int left() const { return width / 2; }
+			int right() const { return 1 + width / 2; }
+			int top() const { return height / 2; }
+			int bottom() const { return 1 + height / 2; }
+			int horizontal() const { return width + 1; }
+			int vertical() const { return height + 1; }
+		} awareRange;
+
+		uint32_t walkId = 0;
+		WalkMatrix walkMatrix;
 };
 
 #endif

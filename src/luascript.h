@@ -20,8 +20,13 @@
 #ifndef FS_LUASCRIPT_H_5344B2BC907E46E3943EA78574A212D8
 #define FS_LUASCRIPT_H_5344B2BC907E46E3943EA78574A212D8
 
-#if __has_include("luajit/lua.hpp")
-#include <luajit/lua.hpp>
+#if defined(_MSC_VER)
+extern "C"
+{
+	#include <luajit/lua.h>
+	#include <luajit/lualib.h>
+	#include <luajit/lauxlib.h>
+}
 #else
 #include <lua.hpp>
 #endif
@@ -841,6 +846,8 @@ class LuaScriptInterface
 		static int luaCreatureMove(lua_State* L);
 
 		static int luaCreatureGetZone(lua_State* L);
+
+		static int luaCreatureSetProgressbar(lua_State* L);
 
 		// Player
 		static int luaPlayerCreate(lua_State* L);

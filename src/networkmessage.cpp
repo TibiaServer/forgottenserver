@@ -51,7 +51,7 @@ Position NetworkMessage::getPosition()
 void NetworkMessage::addString(const std::string& value)
 {
 	size_t stringLen = value.length();
-	if (!canAdd(stringLen + 2) || stringLen > 8192) {
+	if (!canAdd(stringLen + 2)) {
 		return;
 	}
 
@@ -69,7 +69,7 @@ void NetworkMessage::addDouble(double value, uint8_t precision/* = 2*/)
 
 void NetworkMessage::addBytes(const char* bytes, size_t size)
 {
-	if (!canAdd(size) || size > 8192) {
+	if (!canAdd(size)) {
 		return;
 	}
 
@@ -95,7 +95,7 @@ void NetworkMessage::addPosition(const Position& pos)
 	addByte(pos.z);
 }
 
-void NetworkMessage::addItem(uint16_t id, uint8_t count)
+void NetworkMessage::addItem(uint16_t id, uint8_t count, bool withDescription)
 {
 	const ItemType& it = Item::items[id];
 
@@ -112,9 +112,13 @@ void NetworkMessage::addItem(uint16_t id, uint8_t count)
 	if (it.isAnimation) {
 		addByte(0xFE); // random phase (0xFF for async)
 	}
+
+	if (withDescription) {
+		addString("");
+	}
 }
 
-void NetworkMessage::addItem(const Item* item)
+void NetworkMessage::addItem(const Item* item, bool withDescription)
 {
 	const ItemType& it = Item::items[item->getID()];
 
@@ -129,6 +133,10 @@ void NetworkMessage::addItem(const Item* item)
 
 	if (it.isAnimation) {
 		addByte(0xFE); // random phase (0xFF for async)
+	}
+
+	if (withDescription) {
+		addString(item->getDescription(0));
 	}
 }
 

@@ -37,6 +37,9 @@
 #include "town.h"
 #include "mounts.h"
 #include "storeinbox.h"
+#include "auras.h"
+#include "wings.h"
+#include "shaders.h"
 
 #include <bitset>
 
@@ -153,14 +156,39 @@ class Player final : public Creature, public Cylinder
 
 		uint8_t getCurrentMount() const;
 		void setCurrentMount(uint8_t mountId);
-		bool isMounted() const {
+		bool isMounted() const
+		{
 			return defaultOutfit.lookMount != 0;
+		}
+		bool hasMount() const
+		{
+			return defaultOutfit.lookMount != 0;
+		}
+		bool hasAura() const
+		{
+			return defaultOutfit.lookAura != 0;
+		}
+		bool hasWings() const
+		{
+			return defaultOutfit.lookWings != 0;
+		}
+		bool hasShader() const
+		{
+			return defaultOutfit.lookShader != 0;
 		}
 		bool toggleMount(bool mount);
 		bool tameMount(uint8_t mountId);
 		bool untameMount(uint8_t mountId);
 		bool hasMount(const Mount* mount) const;
 		void dismount();
+
+		bool hasWing(const Wing* wing) const;
+		uint8_t getCurrentAura() const;
+		void setCurrentAura(uint8_t auraId);
+		bool hasAura(const Aura* aura) const;
+		uint8_t getCurrentWing() const;
+		void setCurrentWing(uint8_t wingId);
+		bool hasShader(const Shader* shader) const;
 
 		void sendFYIBox(const std::string& message) {
 			if (client) {
@@ -869,6 +897,7 @@ class Player final : public Creature, public Cylinder
 				client->sendItems();
 			}
 		}
+		void autoOpenContainers();
 
 		//event methods
 		void onUpdateTileItem(const Tile* tile, const Position& pos, const Item* oldItem,
@@ -908,9 +937,16 @@ class Player final : public Creature, public Cylinder
 				client->sendCancelTarget();
 			}
 		}
-		void sendCancelWalk() const {
+		void sendCancelWalk() const
+		{
 			if (client) {
 				client->sendCancelWalk();
+			}
+		}
+		void sendNewCancelWalk() const
+		{
+			if (client) {
+				client->sendNewCancelWalk();
 			}
 		}
 		void sendChangeSpeed(const Creature* creature, uint32_t newSpeed) const {
@@ -1125,8 +1161,37 @@ class Player final : public Creature, public Cylinder
 			}
 		}
 
+		void sendProgressbar(uint32_t id, uint32_t duration, bool ltr = true) {
+            if (client) {
+                client->sendProgressbar(id, duration, ltr);
+            }
+        }
+
 		void receivePing() {
 			lastPong = OTSYS_TIME();
+		}
+
+		void setFPS(uint16_t value)
+		{
+			fps = value;
+		}
+		void setLocalPing(uint16_t value)
+		{
+			localPing = value;
+		}
+		uint16_t getFPS() const
+		{
+			return fps;
+		}
+		uint16_t getLocalPing() const
+		{
+			return localPing;
+		}
+		uint16_t getOTCv8Version() const
+		{
+			if (client)
+				return client->otclientV8;
+			return 0;
 		}
 
 		void onThink(uint32_t interval) override;
@@ -1153,6 +1218,11 @@ class Player final : public Creature, public Cylinder
 		void learnInstantSpell(const std::string& spellName);
 		void forgetInstantSpell(const std::string& spellName);
 		bool hasLearnedInstantSpell(const std::string& spellName) const;
+
+		const std::map<uint8_t, OpenContainer>& getOpenContainers() const
+		{
+			return openContainers;
+		}
 
 	private:
 		std::forward_list<Condition*> getMuteConditions() const;
@@ -1295,6 +1365,8 @@ class Player final : public Creature, public Cylinder
 		uint16_t lastStatsTrainingTime = 0;
 		uint16_t staminaMinutes = 2520;
 		uint16_t maxWriteLen = 0;
+		uint16_t localPing = 0;
+		uint16_t fps = 0;
 		int16_t lastDepotId = -1;
 
 		uint8_t soul = 0;
